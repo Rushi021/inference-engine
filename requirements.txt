@@ -1,0 +1,16 @@
+# Core ML runtime — CPU build for Phases 0-4 (no GPU yet)
+torch>=2.5.0
+transformers>=4.46.0
+accelerate>=1.1.0          # HF helper for device placement / generation
+huggingface_hub>=0.26.0   # model download + caching
+
+# Serving API (used from Phase 1 onward)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+
+# Testing
+pytest>=8.3.0
+httpx>=0.27.0             # FastAPI TestClient dependency
+
+# NOTE: vLLM is intentionally NOT here — it needs a GPU. Added in Phase 5.

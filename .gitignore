@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment / secrets
+.env
+*.local
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Large model files (we download from HF at runtime, never commit weights)
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+models/
+hf_cache/
+
+# Benchmark + run artifacts
+results/
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
