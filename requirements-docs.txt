@@ -1,0 +1,4 @@
+# Tooling for generating phase PDFs (not needed to run the engine/server)
+markdown>=3.7
+pygments>=2.18      # syntax highlighting for code blocks
+# PDF rendering uses Google Chrome headless (already installed), no extra dep
