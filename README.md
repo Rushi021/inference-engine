@@ -5,7 +5,7 @@ engine** with a hand-written KV cache and continuous-batching scheduler, and a *
 production baseline — then benchmarked under load for throughput, latency (p50/p99), and GPU
 utilization. Includes an FP16-vs-INT8 quantization study and a GCP/GKE autoscaling deployment.
 
-> Status: **Phase 1 complete** (naive baseline serving). Build proceeds Phase 0 → 7.
+> Status: **Phase 2 complete** (from-scratch KV cache). Build proceeds Phase 0 → 7.
 
 ## Why this project
 
@@ -52,7 +52,7 @@ cheap. Override with `MODEL_ID=...`.
 
 0. **Scaffold + local model load** ✅
 1. **Naive baseline FastAPI inference server** ✅
-2. From-scratch KV cache
+2. **From-scratch KV cache** ✅ — toy attention (O(n²)→O(n)) + real-model manual decode (~5× speedup)
 3. Continuous batching scheduler
 4. Benchmark harness & load testing
 5. vLLM baseline + quantization comparison (GPU)
