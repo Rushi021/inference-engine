@@ -5,7 +5,7 @@ engine** with a hand-written KV cache and continuous-batching scheduler, and a *
 production baseline — then benchmarked under load for throughput, latency (p50/p99), and GPU
 utilization. Includes an FP16-vs-INT8 quantization study and a GCP/GKE autoscaling deployment.
 
-> Status: **Phase 0 complete** (scaffold + local CPU model load). Build proceeds Phase 0 → 7.
+> Status: **Phase 1 complete** (naive baseline serving). Build proceeds Phase 0 → 7.
 
 ## Why this project
 
@@ -37,6 +37,12 @@ python scripts/smoke_generate.py "What is a KV cache?"
 
 # Run the test suite
 pytest -q
+
+# Run the naive baseline server (pick a free port)
+uvicorn server.app:app --port 8077
+# then, in another terminal:
+curl -X POST localhost:8077/generate -H "Content-Type: application/json" \
+  -d '{"prompt":"What is a KV cache?","max_tokens":48}'
 ```
 
 The default model is `Qwen/Qwen2.5-0.5B-Instruct` — tiny, ungated, and CPU-friendly so iteration is
@@ -45,7 +51,7 @@ cheap. Override with `MODEL_ID=...`.
 ## Build phases
 
 0. **Scaffold + local model load** ✅
-1. Naive baseline FastAPI inference server
+1. **Naive baseline FastAPI inference server** ✅
 2. From-scratch KV cache
 3. Continuous batching scheduler
 4. Benchmark harness & load testing
