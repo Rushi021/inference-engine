@@ -1,8 +1,11 @@
+import threading                                                # serialize concurrent first-time loads
 import torch                                                   # tensor + inference runtime
 from functools import lru_cache                                 # cache the loaded model across calls
 from transformers import AutoModelForCausalLM, AutoTokenizer    # HF model + tokenizer loaders
 
 from engine.config import MODEL_ID, DEFAULT_DTYPE               # project-wide defaults
+
+_load_lock = threading.Lock()                                   # lru_cache caches results, not execution
 
 
 def pick_device():
@@ -27,7 +30,8 @@ def _load_cached(model_id: str, device: str):
 
 def load_model(model_id: str = MODEL_ID, device: str | None = None):
     device = device or pick_device()                          # resolve device before caching
-    return _load_cached(model_id, device)                    # concrete args → reliable cache hits
+    with _load_lock:                                          # block concurrent first loads (meta-tensor race)
+        return _load_cached(model_id, device)                # concrete args → reliable cache hits
 
 
 def build_prompt(tokenizer, prompt: str) -> str:
