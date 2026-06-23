@@ -5,7 +5,7 @@ engine** with a hand-written KV cache and continuous-batching scheduler, and a *
 production baseline — then benchmarked under load for throughput, latency (p50/p99), and GPU
 utilization. Includes an FP16-vs-INT8 quantization study and a GCP/GKE autoscaling deployment.
 
-> Status: **Phase 4 complete** (benchmark harness & load testing). Build proceeds Phase 0 → 7.
+> Status: **Phase 5 prepared** (vLLM + quantization code & GPU runbook ready; numbers pending a GPU session). Build proceeds Phase 0 → 7.
 
 ## Why this project
 
@@ -70,6 +70,6 @@ cheap. Override with `MODEL_ID=...`.
 2. **From-scratch KV cache** ✅ — toy attention (O(n²)→O(n)) + real-model manual decode (~5× speedup)
 3. **Continuous batching scheduler** ✅ — in-flight admit/evict, per-sequence KV caches, beats naive under load
 4. **Benchmark harness & load testing** ✅ — async load sweep, p50/p90/p99 + throughput + GPU util, plotted
-5. vLLM baseline + quantization comparison (GPU)
+5. **vLLM baseline + quantization comparison** 🟡 prepared (code + GPU runbook ready; run on a GPU)
 6. Containerize & deploy on GCP / GKE (GPU)
 7. Results dashboard & benchmark-driven README

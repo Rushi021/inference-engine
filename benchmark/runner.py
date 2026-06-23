@@ -27,13 +27,16 @@ def _spawn_server(port):
     return proc
 
 
-async def _wait_healthy(client, timeout=120):
+async def _wait_healthy(client, timeout=120, api="native"):
     deadline = time.time() + timeout                           # give the model time to load
     while time.time() < deadline:
         try:
             r = await client.get("/health")                    # poll liveness
-            if r.status_code == 200 and r.json().get("status") == "ok":
-                return True
+            if r.status_code == 200:                            # vLLM /health returns 200 with no body
+                if api == "openai":
+                    return True
+                if r.json().get("status") == "ok":             # our server reports a status field
+                    return True
         except Exception:
             pass
         await asyncio.sleep(1)
@@ -48,13 +51,15 @@ async def _run(args):
     proc = None
     base_url = args.url                                        # use existing server if given
     if base_url is None:                                      # otherwise spawn our own
+        if args.api == "openai":                              # vLLM server is started by the user (vllm serve)
+            raise SystemExit("--api openai requires --url pointing at a running vLLM server")
         proc = _spawn_server(args.port)
         base_url = f"http://127.0.0.1:{args.port}"
 
     results = []
     try:
         async with httpx.AsyncClient(base_url=base_url, timeout=600) as client:
-            if not await _wait_healthy(client):               # block until the model is ready
+            if not await _wait_healthy(client, api=args.api):  # block until the model is ready
                 raise RuntimeError("server did not become healthy in time")
             print(f"server ready at {base_url}; GPU sampling: {'on' if has_nvidia_smi() else 'off (CPU/MPS)'}")
             for engine in engines:                            # one row per (engine, concurrency)
@@ -62,7 +67,8 @@ async def _run(args):
                     sampler = GpuSampler().start()            # sample GPU during this cell
                     summary = await run_load(client, engine, concurrency=c,
                                              num_requests=max(args.requests, c),
-                                             max_tokens=args.max_tokens)
+                                             max_tokens=args.max_tokens,
+                                             api=args.api, model=args.model)
                     summary["gpu"] = sampler.stop()           # attach GPU stats (None on CPU/MPS)
                     results.append(summary)
                     print(f"  {engine:>7} c={c:<3} -> {summary['throughput_tok_s']:>7.1f} tok/s  "
@@ -105,6 +111,8 @@ def main():
     ap.add_argument("--max-tokens", type=int, default=24)      # output length per request
     ap.add_argument("--port", type=int, default=8077)          # spawned server port (8000 is taken)
     ap.add_argument("--url", default=None)                     # use an existing server instead of spawning
+    ap.add_argument("--api", choices=["native", "openai"], default="native")  # openai = vLLM server
+    ap.add_argument("--model", default=None)                   # model name for the OpenAI /v1/completions call
     args = ap.parse_args()
     asyncio.run(_run(args))
 

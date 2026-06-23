@@ -1,0 +1,6 @@
+# GPU-only dependencies for Phase 5 (vLLM baseline + quantization).
+# Install these ONLY on a CUDA GPU instance — they do not work on CPU/macOS.
+# On the GPU box:  pip install -r requirements.txt -r requirements-gpu.txt
+
+vllm>=0.6.0            # production inference server (PagedAttention) — OpenAI-compatible
+bitsandbytes>=0.44.0  # int8 / int4 (NF4) weight quantization for the FP16-vs-INT8 study
