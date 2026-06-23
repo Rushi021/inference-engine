@@ -5,7 +5,7 @@ engine** with a hand-written KV cache and continuous-batching scheduler, and a *
 production baseline — then benchmarked under load for throughput, latency (p50/p99), and GPU
 utilization. Includes an FP16-vs-INT8 quantization study and a GCP/GKE autoscaling deployment.
 
-> Status: **Phase 3 complete** (continuous batching scheduler). Build proceeds Phase 0 → 7.
+> Status: **Phase 4 complete** (benchmark harness & load testing). Build proceeds Phase 0 → 7.
 
 ## Why this project
 
@@ -46,7 +46,19 @@ curl -X POST localhost:8077/generate -H "Content-Type: application/json" \
 
 # Compare engine throughput across concurrency levels
 python scripts/batching_demo.py
+
+# Full benchmark sweep (spawns server, sweeps both engines) + graphs
+python benchmark/runner.py --concurrency 1,4,16 --requests 16 --max-tokens 32
+python benchmark/plot.py
 ```
+
+## Sample benchmark (CPU/MPS validation, Qwen2.5-0.5B)
+
+![throughput vs concurrency](results/throughput.png)
+
+Naive throughput is flat (requests serialize); continuous batching scales with load. The real,
+larger gaps come from the GPU runs (Phases 5–7). p50/p90/p99 latency, TTFT, and (on GPU) utilization
+charts are generated alongside this one in `results/`.
 
 The default model is `Qwen/Qwen2.5-0.5B-Instruct` — tiny, ungated, and CPU-friendly so iteration is
 cheap. Override with `MODEL_ID=...`.
@@ -57,7 +69,7 @@ cheap. Override with `MODEL_ID=...`.
 1. **Naive baseline FastAPI inference server** ✅
 2. **From-scratch KV cache** ✅ — toy attention (O(n²)→O(n)) + real-model manual decode (~5× speedup)
 3. **Continuous batching scheduler** ✅ — in-flight admit/evict, per-sequence KV caches, beats naive under load
-4. Benchmark harness & load testing
+4. **Benchmark harness & load testing** ✅ — async load sweep, p50/p90/p99 + throughput + GPU util, plotted
 5. vLLM baseline + quantization comparison (GPU)
 6. Containerize & deploy on GCP / GKE (GPU)
 7. Results dashboard & benchmark-driven README

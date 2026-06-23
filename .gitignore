@@ -28,8 +28,9 @@ env/
 models/
 hf_cache/
 
-# Benchmark + run artifacts
-results/
+# Benchmark + run artifacts (keep committed graphs + latest.json, drop raw timestamped runs)
+results/bench-*.json
+results/bench-*.csv
 *.log
 
 # OS / editor
