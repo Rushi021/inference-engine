@@ -1,0 +1,17 @@
+# Local one-command run (CPU). From the repo root:
+#   docker compose -f deploy/docker-compose.yml up --build
+# then hit http://localhost:8077/health
+services:
+  inference:
+    build:
+      context: ..                       # build from repo root so COPY paths resolve
+      dockerfile: deploy/Dockerfile.cpu  # CPU image for laptops
+    ports:
+      - "8077:8000"                     # host 8077 -> container 8000 (8000 is taken locally)
+    environment:
+      - MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct
+    volumes:
+      - hf-cache:/models                # persist downloaded weights across restarts
+
+volumes:
+  hf-cache:                             # named volume for the HF cache

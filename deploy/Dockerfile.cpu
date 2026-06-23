@@ -1,0 +1,22 @@
+# CPU image for local development / docker compose (no GPU needed).
+# Use this to run the stack on a laptop; the GPU Dockerfile is for the cloud.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/models \
+    HF_HUB_DISABLE_PROGRESS_BARS=1
+
+WORKDIR /app
+
+# Install the CPU build of torch explicitly (smaller, no CUDA), then the rest.
+COPY requirements-serve.txt .
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements-serve.txt
+
+COPY engine/ engine/
+COPY server/ server/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]

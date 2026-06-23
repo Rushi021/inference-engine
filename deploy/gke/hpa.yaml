@@ -1,0 +1,24 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: inference-engine
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: inference-engine        # the deployment to scale
+  minReplicas: 1                  # always keep one pod warm
+  maxReplicas: 4                  # cap pods (each pins a GPU → caps cost)
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu                 # simple, always-available signal
+        target:
+          type: Utilization
+          averageUtilization: 60  # add a pod when avg CPU across pods exceeds 60%
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 120   # don't thrash: wait before removing pods
+# NOTE: CPU% is a proxy. In production you'd scale on a GPU/serving signal —
+# queue depth or tokens/sec via a custom metric (Prometheus Adapter / Cloud Monitoring).
+# CPU is used here because it needs no extra metrics plumbing and still demonstrates autoscaling.

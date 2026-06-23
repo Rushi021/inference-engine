@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-engine
+  labels:
+    app: inference-engine
+spec:
+  replicas: 1                                  # HPA scales this between min/max
+  selector:
+    matchLabels:
+      app: inference-engine
+  template:
+    metadata:
+      labels:
+        app: inference-engine
+    spec:
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-l4   # schedule onto the GPU node pool
+      containers:
+        - name: inference-engine
+          image: REGION-docker.pkg.dev/PROJECT_ID/inference/inference-engine:latest  # set before apply
+          ports:
+            - containerPort: 8000
+          env:
+            - name: HF_HOME
+              value: /models                  # weight cache path inside the container
+          resources:
+            requests:
+              cpu: "2"                         # HPA's CPU% is measured against this request
+              memory: 8Gi
+              nvidia.com/gpu: "1"              # one GPU per pod (also acts as a scheduling gate)
+            limits:
+              nvidia.com/gpu: "1"             # GPUs cannot be oversubscribed; limit == request
+          readinessProbe:
+            httpGet:
+              path: /health                   # only send traffic once the model has loaded
+              port: 8000
+            initialDelaySeconds: 30           # model load takes time on cold start
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health                   # restart the pod if it wedges
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 20

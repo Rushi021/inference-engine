@@ -1,0 +1,8 @@
+# Minimal runtime deps for the serving container (no pytest/matplotlib/docs tooling).
+torch>=2.5.0
+transformers>=4.46.0
+accelerate>=1.1.0
+huggingface_hub>=0.26.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0

@@ -1,0 +1,16 @@
+.git
+.venv
+venv
+hf_cache
+models
+results
+docs
+tests
+benchmark
+scripts
+__pycache__
+*.pyc
+.pytest_cache
+.DS_Store
+*.md
+LLM_Inference_Engine_Build_Plan.md
