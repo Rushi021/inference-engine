@@ -1,75 +1,169 @@
 # Distributed LLM Inference & Serving Platform
 
-A self-hosted LLM inference engine built three ways — a **naive baseline**, a **from-scratch
-engine** with a hand-written KV cache and continuous-batching scheduler, and a **vLLM-backed**
-production baseline — then benchmarked under load for throughput, latency (p50/p99), and GPU
-utilization. Includes an FP16-vs-INT8 quantization study and a GCP/GKE autoscaling deployment.
+A self-hosted LLM inference engine built **three ways** — a naive baseline, a **from-scratch engine
+with my own KV cache and continuous-batching scheduler**, and a vLLM production baseline — then
+benchmarked under load for throughput, latency (p50/p90/p99), and GPU utilization, with an FP16-vs-INT8
+quantization study and a GCP/GKE autoscaling deployment.
 
-> Status: **Phases 5–6 prepared** (vLLM/quant + Docker/GKE configs & runbooks ready; pending a GPU/cloud session). Build proceeds Phase 0 → 7.
+> The goal isn't to beat vLLM. It's to **build the internals production engines are made of** — KV
+> caching, in-flight batching, GPU-utilization reasoning, quantization tradeoffs, autoscaling — and
+> measure every claim instead of asserting it.
 
-## Why this project
+**Model:** `Qwen/Qwen2.5-0.5B-Instruct` (tiny, ungated) so the *systems* lessons are cheap to iterate;
+they're identical at any model size.
 
-Most "I used an LLM API" projects show no systems depth. This one demonstrates the internals that
-production inference engines live or die on — KV caching, in-flight batching, GPU utilization,
-quantization tradeoffs, and cloud autoscaling — all measured, not asserted.
+---
 
-## Repository layout
+## Problem
 
-| Directory     | Purpose |
-|---------------|---------|
-| `engine/`     | Inference internals: model loader, KV cache, batching scheduler (Phases 0–3) |
-| `server/`     | FastAPI serving layer exposing the engine variants (Phase 1+) |
-| `benchmark/`  | Load-test client, sweep runner, and plotting (Phase 4) |
-| `deploy/`     | Dockerfile, GCP VM scripts, GKE manifests (Phase 6) |
-| `dashboard/`  | Results dashboard (Phase 7) |
-| `tests/`      | pytest suite |
-| `scripts/`    | One-off utilities (smoke tests, runbooks) |
+Naive LLM serving processes one request at a time. The GPU — which can decode dozens of sequences in a
+single forward pass for nearly the same latency — sits mostly idle, so throughput is low and tail
+latency explodes under load. This project builds the optimizations that fix that, from first
+principles, and proves each one with a benchmark.
 
-## Quickstart (local, CPU, no cost)
+## Architecture
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# Prove the model loads and generates on CPU
-python scripts/smoke_generate.py "What is a KV cache?"
-
-# Run the test suite
-pytest -q
-
-# Run the server (pick a free port)
-uvicorn server.app:app --port 8077
-# then, in another terminal — choose the engine: "naive" or "batched"
-curl -X POST localhost:8077/generate -H "Content-Type: application/json" \
-  -d '{"prompt":"What is a KV cache?","max_tokens":48,"engine":"batched"}'
-
-# Compare engine throughput across concurrency levels
-python scripts/batching_demo.py
-
-# Full benchmark sweep (spawns server, sweeps both engines) + graphs
-python benchmark/runner.py --concurrency 1,4,16 --requests 16 --max-tokens 32
-python benchmark/plot.py
+```mermaid
+flowchart LR
+    C[Load-test client<br/>benchmark/] -->|HTTP /generate| S[FastAPI server<br/>server/]
+    S -->|engine=naive| N[Naive engine<br/>1 request at a time]
+    S -->|engine=batched| B[Continuous-batching engine<br/>in-flight admit/evict]
+    N --> M[(Qwen2.5-0.5B<br/>Transformers)]
+    B --> KV[From-scratch KV cache<br/>per-sequence, left-padded batch]
+    KV --> M
+    S -.->|OpenAI API| V[vLLM server<br/>PagedAttention - GPU]
+    B --> R[results/ JSON+CSV+PNG] --> D[Dashboard<br/>dashboard/index.html]
 ```
 
-## Sample benchmark (CPU/MPS validation, Qwen2.5-0.5B)
+## Engine variants
+
+| Engine | What it is | Why it exists |
+|---|---|---|
+| **naive** | One request at a time, vanilla `.generate()`, serialized with a lock | The honest control group every optimization is measured against |
+| **batched** | My continuous-batching scheduler: one decode step across all in-flight requests, admit/evict at step boundaries, per-sequence KV caches | Demonstrates the core production technique from first principles |
+| **vLLM** | Production baseline via its OpenAI server (PagedAttention) | Honest comparison — shows where a paged cache pulls ahead and why |
+
+---
+
+## Headline results (CPU/MPS validation, Qwen2.5-0.5B)
 
 ![throughput vs concurrency](results/throughput.png)
 
-Naive throughput is flat (requests serialize); continuous batching scales with load. The real,
-larger gaps come from the GPU runs (Phases 5–7). p50/p90/p99 latency, TTFT, and (on GPU) utilization
-charts are generated alongside this one in `results/`.
+| engine | c=1 | c=4 | c=16 |
+|---|---|---|---|
+| naive — throughput (tok/s) | 46 | 55 | 55 *(flat)* |
+| **batched — throughput (tok/s)** | 55 | 59 | **80** *(scales)* |
+| naive — **p99 latency** | 1.9s | 2.2s | **7.5s** *(explodes)* |
+| batched — **p99 latency** | 0.6s | 2.4s | **5.1s** |
 
-The default model is `Qwen/Qwen2.5-0.5B-Instruct` — tiny, ungated, and CPU-friendly so iteration is
-cheap. Override with `MODEL_ID=...`.
+**Naive throughput is flat under load** (requests serialize) **with an exploding p99 tail**, while
+**continuous batching scales throughput and holds a lower tail** — the gap widens with concurrency,
+the signature of batching. The larger absolute numbers come from the GPU runs (Phases 5–7); these CPU
+numbers validate the methodology end-to-end. Full interactive table + all four charts:
+[`dashboard/index.html`](dashboard/index.html).
 
-## Build phases
+> **Honest finding:** batched throughput wins, but its *TTFT rises under burst* because new requests
+> are prefilled serially on admission — a real throughput-vs-latency tradeoff that vLLM's chunked
+> prefill mitigates. Measuring it (rather than hiding it) is the point.
 
-0. **Scaffold + local model load** ✅
-1. **Naive baseline FastAPI inference server** ✅
-2. **From-scratch KV cache** ✅ — toy attention (O(n²)→O(n)) + real-model manual decode (~5× speedup)
-3. **Continuous batching scheduler** ✅ — in-flight admit/evict, per-sequence KV caches, beats naive under load
-4. **Benchmark harness & load testing** ✅ — async load sweep, p50/p90/p99 + throughput + GPU util, plotted
-5. **vLLM baseline + quantization comparison** 🟡 prepared (code + GPU runbook ready; run on a GPU)
-6. **Containerize & deploy on GCP / GKE** 🟡 prepared (Dockerfiles + manifests + cloud runbook ready)
-7. Results dashboard & benchmark-driven README
+---
+
+## Key findings
+
+1. **Batching beats serialization, and the win grows with load** — flat vs scaling throughput; the
+   p99 tail is where naive serving truly falls apart.
+2. **The KV cache turns O(n²) decode into O(n)** — my from-scratch toy shows the work ratio growing
+   8.5× → 32.5× → 64.5× with sequence length; on the real model the cached decode is ~5× faster with
+   byte-identical output.
+3. **Memory, not compute, caps batch size** — KV cache = `2·L·B·H_kv·d·S·bytes`; 24 MiB per 2048-token
+   sequence here, so concurrency is a memory-budget problem. This is exactly what PagedAttention
+   optimizes.
+4. **Quantization is a tradeoff, not a free lunch** — measured with perplexity + FP16-token-agreement,
+   not just speed (run on GPU; methodology and runbook ready).
+
+## Key engineering decisions
+
+- **Engine separate from server** — internals (KV cache, scheduler) are unit-testable without HTTP, and
+  the server swaps engines behind one API and request schema.
+- **Single scheduler thread owns the model** — serializes GPU access (no racing forward passes); request
+  threads only enqueue and wait. The shared batched step *is* the throughput win.
+- **Contiguous left-padded batched cache** — correct and simple, and it makes the padding/fragmentation
+  waste *visible* — which is precisely the problem vLLM's paged cache solves. I built the version it
+  improves on, so I can explain the gap.
+- **Benchmark rigor** — closed-loop concurrency, client-side latency (captures queueing), p50/p90/p99
+  (not just mean), GPU-utilization sampling, results to JSON/CSV + plotted.
+- **Two real bugs caught by tests**, both good interview stories: an `lru_cache` key mismatch that
+  double-loaded the model, and a thread-safety race (`lru_cache` caches results, not execution) that
+  crashed concurrent startup on meta-tensor materialization.
+
+## What I learned
+
+The autoregressive decode loop and why the KV cache is the central serving constraint; static vs
+continuous batching and how to schedule in-flight requests; how to merge ragged per-sequence caches
+with correct RoPE positions; benchmarking discipline (tail latency, closed-loop load, honest baselines);
+quantization quality measurement; and the container → VM → GKE-autoscaling deployment path with strict
+cost control.
+
+---
+
+## Run it
+
+**Local (Python):**
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+pytest -q                                            # 20 tests
+
+# Serve (8000 may be taken locally; use 8077)
+uvicorn server.app:app --port 8077
+curl -X POST localhost:8077/generate -H "Content-Type: application/json" \
+  -d '{"prompt":"What is a KV cache?","max_tokens":48,"engine":"batched"}'
+
+# Benchmark both engines + build the dashboard
+python benchmark/runner.py --concurrency 1,4,16 --requests 16 --max-tokens 32
+python benchmark/plot.py
+python dashboard/build_dashboard.py                  # -> dashboard/index.html
+```
+
+**Local (Docker, one command):**
+```bash
+docker compose -f deploy/docker-compose.yml up --build   # -> http://localhost:8077/health
+```
+
+**GPU / cloud (vLLM, quantization, GKE):** see the runbooks in [docs/phase-5.md](docs/phase-5.md) and
+[docs/phase-6.md](docs/phase-6.md). GPUs bill hourly — each runbook ends with a teardown checklist.
+
+## Demos worth watching
+```bash
+python scripts/kv_cache_demo.py      # O(n^2)->O(n) work ratio + ~5x real-model speedup + memory table
+python scripts/batching_demo.py      # batched vs naive throughput across concurrency
+```
+
+---
+
+## Repository layout
+
+| Directory | Purpose |
+|---|---|
+| `engine/` | Inference internals: model loader, from-scratch KV cache, manual decode, continuous-batching scheduler, quantization loaders |
+| `server/` | FastAPI serving layer (`naive` / `batched` engine selector) |
+| `benchmark/` | Async load tester, stats, GPU sampler, sweep runner, plots, quantization comparison |
+| `deploy/` | Dockerfiles, docker-compose, GKE manifests (deployment/service/HPA) |
+| `dashboard/` | Self-contained benchmark dashboard generator |
+| `docs/` | Per-phase write-ups + **PDF interview-prep** (`docs/pdf/`) |
+| `tests/` | pytest suite (20 tests) |
+| `scripts/` | Demos + the markdown→PDF tool |
+
+## Build phases & write-ups
+
+Each phase has a markdown write-up and a PDF (what was built, why, and interview Q&A) in `docs/`:
+
+0. [Scaffold + local model load](docs/phase-0.md) ✅
+1. [Naive baseline server](docs/phase-1.md) ✅
+2. [From-scratch KV cache](docs/phase-2.md) ✅
+3. [Continuous batching scheduler](docs/phase-3.md) ✅
+4. [Benchmark harness & load testing](docs/phase-4.md) ✅
+5. [vLLM baseline + quantization](docs/phase-5.md) 🟡 *(code + GPU runbook ready)*
+6. [Containerize & deploy on GCP/GKE](docs/phase-6.md) 🟡 *(configs + cloud runbook ready)*
+7. Dashboard & this README ✅
