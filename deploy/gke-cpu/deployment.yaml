@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-engine
+  labels:
+    app: inference-engine
+spec:
+  replicas: 1                                  # HPA scales this between min/max
+  selector:
+    matchLabels:
+      app: inference-engine
+  template:
+    metadata:
+      labels:
+        app: inference-engine
+    spec:
+      containers:
+        - name: inference-engine
+          image: IMAGE_PLACEHOLDER             # replaced with the Cloud Build image before apply
+          ports:
+            - containerPort: 8000
+          env:
+            - name: HF_HOME
+              value: /models                   # weight cache path inside the container
+            - name: MODEL_ID
+              value: Qwen/Qwen2.5-0.5B-Instruct
+          resources:
+            requests:
+              cpu: "1"                          # HPA measures CPU% against this request
+              memory: 3Gi
+            limits:
+              cpu: "2"                          # burst headroom for generation
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /health                     # keep pod out of rotation until model loads
+              port: 8000
+            initialDelaySeconds: 40             # model download + load on cold start
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health                     # restart if it wedges
+              port: 8000
+            initialDelaySeconds: 90
+            periodSeconds: 20

@@ -1,0 +1,23 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: inference-engine
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: inference-engine
+  minReplicas: 1                  # one warm pod
+  maxReplicas: 4                  # scale out to 4 under load
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60  # add a pod when avg CPU across pods exceeds 60%
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0    # react quickly so the demo scales promptly
+    scaleDown:
+      stabilizationWindowSeconds: 120  # don't thrash on the way down

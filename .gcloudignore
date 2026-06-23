@@ -1,0 +1,19 @@
+# Keep the Cloud Build upload tiny — exclude everything not needed to build the image.
+.git
+.venv
+venv
+hf_cache
+models
+results
+docs
+tests
+benchmark
+scripts
+dashboard
+notebooks
+__pycache__
+*.pyc
+.pytest_cache
+.DS_Store
+*.md
+LLM_Inference_Engine_Build_Plan.md
