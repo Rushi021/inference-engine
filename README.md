@@ -68,6 +68,23 @@ numbers validate the methodology end-to-end. Full interactive table + all four c
 
 ---
 
+## Deployment & autoscaling (GKE)
+
+Containerized (Cloud Build → Artifact Registry) and deployed to **Google Kubernetes Engine** behind a
+LoadBalancer, with a Horizontal Pod Autoscaler. Driving sustained load produced a clean two-layer
+autoscale — **HPA scaled pods 1→4** when CPU crossed 60% of request, and the **cluster autoscaler
+added a second node** to fit them, capping at `maxReplicas`:
+
+```
+00:20  cpu=0%/60%    replicas=1  pods=1  nodes=1   <- idle
+00:20  cpu=199%/60%  replicas=4  pods=3  nodes=1   <- load hits, HPA jumps to max
+00:21  cpu=105%/60%  replicas=4  pods=4  nodes=2   <- cluster autoscaler adds a node
+```
+
+Full captured run: [docs/phase-6-autoscaling.md](docs/phase-6-autoscaling.md). Ran on CPU nodes
+(GPU quota pending on a new account); the autoscaling mechanism is identical on GPU. Teardown is one
+script (`deploy/teardown.sh`) so nothing keeps billing.
+
 ## Key findings
 
 1. **Batching beats serialization, and the win grows with load** — flat vs scaling throughput; the
@@ -164,6 +181,6 @@ Each phase has a markdown write-up and a PDF (what was built, why, and interview
 2. [From-scratch KV cache](docs/phase-2.md) ✅
 3. [Continuous batching scheduler](docs/phase-3.md) ✅
 4. [Benchmark harness & load testing](docs/phase-4.md) ✅
-5. [vLLM baseline + quantization](docs/phase-5.md) 🟡 *(code + GPU runbook ready)*
-6. [Containerize & deploy on GCP/GKE](docs/phase-6.md) 🟡 *(configs + cloud runbook ready)*
+5. [vLLM baseline + quantization](docs/phase-5.md) 🟡 *(code ready; run on GPU via [Colab notebook](notebooks/phase5_gpu_colab.ipynb) — GCP GPU quota pending)*
+6. [Containerize & deploy on GCP/GKE](docs/phase-6.md) ✅ — **deployed on GKE; [live autoscaling demo](docs/phase-6-autoscaling.md) (HPA 1→4 + node autoscale)**
 7. Dashboard & this README ✅
