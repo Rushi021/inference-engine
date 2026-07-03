@@ -45,26 +45,34 @@ flowchart LR
 
 ---
 
-## Headline results (CPU/MPS validation, Qwen2.5-0.5B)
+## Headline results (NVIDIA T4 GPU, Qwen2.5-0.5B, 128-token generations)
 
 ![throughput vs concurrency](results/throughput.png)
 
-| engine | c=1 | c=4 | c=16 |
-|---|---|---|---|
-| naive — throughput (tok/s) | 46 | 55 | 55 *(flat)* |
-| **batched — throughput (tok/s)** | 55 | 59 | **80** *(scales)* |
-| naive — **p99 latency** | 1.9s | 2.2s | **7.5s** *(explodes)* |
-| batched — **p99 latency** | 0.6s | 2.4s | **5.1s** |
+| engine | c=1 | c=4 | c=16 | c=64 |
+|---|---|---|---|---|
+| naive — throughput (tok/s) | 24 | 27 | 27 *(flat)* | 27 *(flat)* |
+| **batched — throughput (tok/s)** | 31 | 111 | **201** *(scales)* | 197 |
+| naive — **p99 latency** | 10s | 11s | 48s | **174s** *(explodes)* |
+| batched — **p99 latency** | 4.6s | 4.9s | 7.9s | **19.7s** |
 
-**Naive throughput is flat under load** (requests serialize) **with an exploding p99 tail**, while
-**continuous batching scales throughput and holds a lower tail** — the gap widens with concurrency,
-the signature of batching. The larger absolute numbers come from the GPU runs (Phases 5–7); these CPU
-numbers validate the methodology end-to-end. Full interactive table + all four charts:
+At concurrency 16 the continuous-batching engine delivers **~7.4× the throughput of naive**
+(201 vs 27 tok/s) while holding p99 latency **6× lower** (7.9s vs 48s). **Naive throughput is flat
+under load** (requests serialize) **with a p99 tail that explodes to 174s at c=64**, while
+**batching scales throughput and keeps the tail bounded** — the signature of in-flight batching, and
+the gap widens with concurrency. Full interactive table + all four charts:
 [`dashboard/index.html`](dashboard/index.html).
 
 > **Honest finding:** batched throughput wins, but its *TTFT rises under burst* because new requests
 > are prefilled serially on admission — a real throughput-vs-latency tradeoff that vLLM's chunked
 > prefill mitigates. Measuring it (rather than hiding it) is the point.
+
+> **vLLM baseline status:** vLLM is integrated behind the *same* harness via its OpenAI-compatible API
+> (`--api openai`), so it benchmarks identically to my engines. The live T4 comparison is pending a
+> re-run — the free Colab image shipped a vLLM build with a CUDA-runtime packaging mismatch
+> (`libcudart.so.13`), now fixed in [the notebook](notebooks/phase5_gpu_colab.ipynb). Expectation to
+> validate: vLLM's PagedAttention should lead at high concurrency by avoiding the left-padding/KV
+> fragmentation my contiguous cache pays for.
 
 ---
 
@@ -87,16 +95,19 @@ script (`deploy/teardown.sh`) so nothing keeps billing.
 
 ## Key findings
 
-1. **Batching beats serialization, and the win grows with load** — flat vs scaling throughput; the
-   p99 tail is where naive serving truly falls apart.
+1. **Batching beats serialization, and the win grows with load** — ~7.4× throughput at c=16 on a T4
+   (201 vs 27 tok/s); the p99 tail (174s vs 20s at c=64) is where naive serving truly falls apart.
 2. **The KV cache turns O(n²) decode into O(n)** — my from-scratch toy shows the work ratio growing
    8.5× → 32.5× → 64.5× with sequence length; on the real model the cached decode is ~5× faster with
    byte-identical output.
 3. **Memory, not compute, caps batch size** — KV cache = `2·L·B·H_kv·d·S·bytes`; 24 MiB per 2048-token
    sequence here, so concurrency is a memory-budget problem. This is exactly what PagedAttention
    optimizes.
-4. **Quantization is a tradeoff, not a free lunch** — measured with perplexity + FP16-token-agreement,
-   not just speed (run on GPU; methodology and runbook ready).
+4. **Quantization is a tradeoff, not a free lunch** — on a T4, bitsandbytes cut peak memory from
+   **980 MiB (FP16) → 489 MiB (INT4)** but did *not* speed up a 0.5B model (INT8 6.9 tok/s, INT4 17.7
+   vs FP16 27.8) — dequant overhead dominates at this size — and INT4 quality collapsed (perplexity
+   14.0 → 25.6). The savings show up as memory, not speed, and only pay off on larger models or with
+   native INT8/FP8 kernels. Measured with perplexity + FP16-token-agreement, not just speed.
 
 ## Key engineering decisions
 

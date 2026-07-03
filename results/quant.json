@@ -1,0 +1,23 @@
+[
+  {
+    "quant": "fp16",
+    "throughput_tok_s": 27.76,
+    "peak_mem_mib": 979.7,
+    "perplexity": 14.037,
+    "token_agreement_vs_fp16": 1.0
+  },
+  {
+    "quant": "int8",
+    "throughput_tok_s": 6.91,
+    "peak_mem_mib": 639.7,
+    "perplexity": 14.218,
+    "token_agreement_vs_fp16": 0.636
+  },
+  {
+    "quant": "int4",
+    "throughput_tok_s": 17.71,
+    "peak_mem_mib": 489.3,
+    "perplexity": 25.606,
+    "token_agreement_vs_fp16": 0.065
+  }
+]

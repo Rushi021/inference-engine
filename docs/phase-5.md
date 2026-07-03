@@ -4,7 +4,44 @@
 honestly, and study the FP16-vs-INT8 quantization tradeoff (speed/memory vs quality). Everything that
 can be prepared on CPU is done; this doc is also the **GPU runbook** so the paid session is short.
 
-> Status: code + runbook prepared on CPU (no spend). Numbers get filled in during the GPU session.
+> Status: **executed on a free Colab T4.** My engines (naive + batched) and the FP16/INT8/INT4
+> quantization study are measured (below). vLLM is integrated behind the same harness but the live
+> comparison is pending a re-run — Colab shipped a vLLM build with a CUDA-runtime packaging mismatch
+> (`libcudart.so.13`), now fixed in the notebook.
+
+---
+
+## 0. Measured results (NVIDIA T4, Qwen2.5-0.5B, 128-token generations)
+
+**Engines under a concurrency sweep** (throughput = aggregate tokens/sec; latency = client-side):
+
+| engine | metric | c=1 | c=4 | c=16 | c=64 |
+|---|---|---|---|---|---|
+| naive | throughput (tok/s) | 24.3 | 26.9 | 27.2 | 27.2 |
+| naive | p99 latency (s) | 10.2 | 11.3 | 47.7 | 174.2 |
+| **batched** | **throughput (tok/s)** | 31.3 | 110.8 | **200.7** | 197.1 |
+| **batched** | p99 latency (s) | 4.6 | 4.9 | 7.9 | 19.7 |
+| batched | mean TTFT (s) | 0.04 | 0.06 | 1.93 | 6.11 |
+
+**Headline:** at c=16 batching delivers **~7.4× naive throughput** (201 vs 27 tok/s) with **6× lower
+p99** (7.9s vs 47.7s). Naive's throughput is flat (serialized) and its p99 explodes to **174s** at
+c=64. Batching's cost shows up as **rising TTFT under burst** (serial prefill on admission) — the exact
+weakness vLLM's chunked prefill fixes.
+
+**Quantization (bitsandbytes):**
+
+| precision | throughput (tok/s) | peak mem (MiB) | perplexity | agreement vs FP16 |
+|---|---|---|---|---|
+| FP16 | 27.8 | 979.7 | 14.04 | 1.00 |
+| INT8 | 6.9 | 639.7 | 14.22 | 0.64 |
+| INT4 (NF4) | 17.7 | 489.3 | 25.61 | 0.07 |
+
+**Finding (an honest, non-obvious one):** on a 0.5B model on a T4, quantization **saved memory but not
+time** — INT8/INT4 were *slower* than FP16 because bitsandbytes' dequant overhead dominates at this
+scale, and INT4 quality collapsed (perplexity 14→26, agreement 1.00→0.07). The lesson: quantization's
+*throughput* payoff needs large models or hardware with **native INT8/FP8 kernels**; its *memory*
+payoff (980→489 MiB) is real and immediate. This is a sharper interview story than "quantization =
+faster," which is often false.
 
 ---
 
