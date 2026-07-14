@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # One-shot GPU benchmark: runs naive + batched + vLLM + quantization on ONE box (same GPU,
-# fair comparison), then prints the JSON to paste back. Works on any NVIDIA GPU host with a
-# sane CUDA stack (RunPod / Vast / Lambda). Use RunPod's "vLLM" or "PyTorch 2.x" template.
+# fair comparison), then leaves results in results/latest.json + results/quant.json.
+# Works on a bare CUDA VM (GCP Deep Learning "common-cu*" image): installs pip+venv itself.
 set -e
 
-echo "== deps =="
-python -c "import vllm" 2>/dev/null || pip install -q vllm bitsandbytes      # vLLM (skip if image has it)
+echo "== deps (apt: pip, venv, git) =="
+sudo apt-get update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip python3-venv git >/dev/null
+
+echo "== python venv + pip installs =="
+python3 -m venv ~/venv
+source ~/venv/bin/activate
+pip install -q --upgrade pip
+pip install -q vllm bitsandbytes                                              # vLLM brings matched torch+CUDA
 pip install -q fastapi "uvicorn[standard]" pydantic httpx accelerate matplotlib  # our serving + harness deps
 
 echo "== clone =="
-cd /workspace 2>/dev/null || cd ~
-rm -rf llm-inference-engine
+cd ~ && rm -rf llm-inference-engine
 git clone -q https://github.com/Rushi021/inference-engine.git
 cd llm-inference-engine
 export HF_HUB_DISABLE_PROGRESS_BARS=1
