@@ -1,0 +1,6 @@
+# The dashboard is a generated artifact (base64-inlined PNG charts) — exclude it from
+# GitHub's language statistics so the repo reads as the Python project it is.
+dashboard/index.html linguist-generated=true
+
+# The Colab notebook is a runbook/demo, not core source — keep it out of language stats.
+notebooks/*.ipynb linguist-documentation=true
