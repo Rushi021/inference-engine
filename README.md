@@ -45,34 +45,26 @@ flowchart LR
 
 ---
 
-## Headline results (NVIDIA T4 GPU, Qwen2.5-0.5B, 128-token generations)
+## Headline results (NVIDIA L4 GPU, Qwen2.5-0.5B, 128-token generations)
+
+All three engines benchmarked on the **same L4** through the same load harness — a fair, apples-to-apples sweep.
 
 ![throughput vs concurrency](results/throughput.png)
 
-| engine | c=1 | c=4 | c=16 | c=64 |
+| throughput (tok/s) | c=1 | c=4 | c=16 | c=64 |
 |---|---|---|---|---|
-| naive — throughput (tok/s) | 24 | 27 | 27 *(flat)* | 27 *(flat)* |
-| **batched — throughput (tok/s)** | 31 | 111 | **201** *(scales)* | 197 |
-| naive — **p99 latency** | 10s | 11s | 48s | **174s** *(explodes)* |
-| batched — **p99 latency** | 4.6s | 4.9s | 7.9s | **19.7s** |
+| naive | 32 | 35 | 34 *(flat)* | 35 *(flat)* |
+| **batched (mine)** | 40 | 119 | 214 *(scales)* | 213 |
+| **vLLM (PagedAttention)** | 48 | 177 | **655** | **2255** |
 
-At concurrency 16 the continuous-batching engine delivers **~7.4× the throughput of naive**
-(201 vs 27 tok/s) while holding p99 latency **6× lower** (7.9s vs 48s). **Naive throughput is flat
-under load** (requests serialize) **with a p99 tail that explodes to 174s at c=64**, while
-**batching scales throughput and keeps the tail bounded** — the signature of in-flight batching, and
-the gap widens with concurrency. Full interactive table + all four charts:
-[`dashboard/index.html`](dashboard/index.html).
+**The honest three-way story:**
+- **My batched engine is ~6× naive** (214 vs 34 tok/s at c=16) and holds p99 latency far tighter — naive's p99 explodes from 7s → **136s** at c=64 as requests serialize, while batched stays at ~19s.
+- **vLLM is ~3× my engine at c=16 and ~10× at c=64** (2255 vs 213 tok/s). This is exactly the gap the project was built to *explain, not hide*: vLLM's **PagedAttention** stores the KV cache in non-contiguous pages, so it packs far more concurrent sequences into VRAM and its throughput keeps climbing where my **contiguous left-padded cache** saturates. My engine implements the continuous-batching idea from scratch; vLLM implements the paged, fragmentation-free version of the same idea.
+- **Memory is the tell:** vLLM reserves ~21.5 GB (pre-allocated paged pool) vs my engine's ~1.3 GB — vLLM trades memory for the packing that yields its throughput.
 
-> **Honest finding:** batched throughput wins, but its *TTFT rises under burst* because new requests
-> are prefilled serially on admission — a real throughput-vs-latency tradeoff that vLLM's chunked
-> prefill mitigates. Measuring it (rather than hiding it) is the point.
+Full interactive table + all four charts: [`dashboard/index.html`](dashboard/index.html).
 
-> **vLLM baseline status:** vLLM is integrated behind the *same* harness via its OpenAI-compatible API
-> (`--api openai`), so it benchmarks identically to my engines. The live T4 comparison is pending a
-> re-run — the free Colab image shipped a vLLM build with a CUDA-runtime packaging mismatch
-> (`libcudart.so.13`), now fixed in [the notebook](notebooks/phase5_gpu_colab.ipynb). Expectation to
-> validate: vLLM's PagedAttention should lead at high concurrency by avoiding the left-padding/KV
-> fragmentation my contiguous cache pays for.
+> **Measurement caveats (kept honest):** (1) vLLM is driven via its OpenAI `/v1/completions` on the raw prompt while my engines use the chat template, so vLLM generates ~121 tok/req vs my ~63 — throughput (tok/s) still normalizes this, but the workloads aren't byte-identical. (2) The TTFT chart is only apples-to-apples between naive and batched; vLLM's "TTFT" is approximated as full request latency because the harness doesn't stream vLLM tokens. (3) My batched engine's TTFT rises under burst (serial prefill on admission) — a real tradeoff vLLM's chunked prefill mitigates.
 
 ---
 
@@ -95,8 +87,10 @@ script (`deploy/teardown.sh`) so nothing keeps billing.
 
 ## Key findings
 
-1. **Batching beats serialization, and the win grows with load** — ~7.4× throughput at c=16 on a T4
-   (201 vs 27 tok/s); the p99 tail (174s vs 20s at c=64) is where naive serving truly falls apart.
+1. **Batching beats serialization; vLLM beats my batching — and I can explain exactly why** — on an L4,
+   my batched engine hit **~6× naive** (214 vs 34 tok/s at c=16), and **vLLM hit ~10× mine at c=64**
+   (2255 vs 213 tok/s). The ladder naive → mine → vLLM is the whole point: each step is a better answer
+   to the same memory-bound problem, and PagedAttention is where a paged KV cache pulls decisively ahead.
 2. **The KV cache turns O(n²) decode into O(n)** — my from-scratch toy shows the work ratio growing
    8.5× → 32.5× → 64.5× with sequence length; on the real model the cached decode is ~5× faster with
    byte-identical output.
